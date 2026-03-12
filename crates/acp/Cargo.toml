@@ -1,0 +1,17 @@
+[package]
+name = "acp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+agent-client-protocol = "0.10"
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["compat"] }
+async-trait = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = "0.4"
+which = "7"
+dirs = "6"
