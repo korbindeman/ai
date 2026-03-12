@@ -136,8 +136,8 @@ impl AgentManager {
 
         let mut child = cmd.spawn()?;
 
-        let stdin = child.stdin.take().unwrap().compat_write();
-        let stdout = child.stdout.take().unwrap().compat();
+        let stdin = child.stdin.take().expect("stdin was piped").compat_write();
+        let stdout = child.stdout.take().expect("stdout was piped").compat();
 
         // Capture agent stderr and log line-by-line.
         if let Some(stderr) = child.stderr.take() {
@@ -304,7 +304,11 @@ impl AgentManager {
         )
         .await?;
 
-        Ok(format!("{:?}", resp.stop_reason))
+        let reason = serde_json::to_value(&resp.stop_reason)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| format!("{:?}", resp.stop_reason));
+        Ok(reason)
     }
 
     /// Cancel a running prompt on a session (soft cancel — session stays alive).

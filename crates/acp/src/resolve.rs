@@ -4,7 +4,7 @@
 //! on first use) or standalone binaries resolved from PATH.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// A built-in agent that can be resolved by short name.
@@ -96,11 +96,15 @@ fn default_cache_root() -> Result<PathBuf, ResolveError> {
     Ok(home.join(".acp").join("agents"))
 }
 
-fn npm_install(cache: &PathBuf, package: &str) -> Result<(), ResolveError> {
+fn npm_install(cache: &Path, package: &str) -> Result<(), ResolveError> {
     std::fs::create_dir_all(cache)?;
 
+    let prefix = cache
+        .to_str()
+        .ok_or_else(|| ResolveError::NpmInstallFailed("cache path is not valid UTF-8".into()))?;
+
     let output = Command::new("npm")
-        .args(["install", "--prefix", cache.to_str().unwrap(), package])
+        .args(["install", "--prefix", prefix, package])
         .output()
         .map_err(|e| ResolveError::NpmInstallFailed(e.to_string()))?;
 
@@ -114,7 +118,7 @@ fn npm_install(cache: &PathBuf, package: &str) -> Result<(), ResolveError> {
 
 fn resolve_builtin(
     builtin: &BuiltinAgent,
-    cache_root: &PathBuf,
+    cache_root: &Path,
     extra_args: &[String],
     env: &HashMap<String, String>,
 ) -> Result<AgentCommand, ResolveError> {
@@ -190,7 +194,7 @@ pub fn resolve_with_args(
 /// Resolve an agent by short name with a custom cache directory.
 pub fn resolve_with_cache(
     name: &str,
-    cache_root: &PathBuf,
+    cache_root: &Path,
     extra_args: &[String],
     env: &HashMap<String, String>,
 ) -> Result<AgentCommand, ResolveError> {
@@ -205,8 +209,7 @@ pub fn resolve_with_cache(
         which::which(name).map_err(|_| ResolveError::AgentNotFound(name.to_string()))?
     };
 
-    let mut args = Vec::new();
-    args.extend_from_slice(extra_args);
+    let args = extra_args.to_vec();
 
     Ok(AgentCommand {
         program,

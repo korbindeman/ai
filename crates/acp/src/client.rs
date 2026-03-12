@@ -222,13 +222,8 @@ impl acp::Client for Client {
         &self,
         args: acp::CreateTerminalRequest,
     ) -> acp::Result<acp::CreateTerminalResponse> {
-        let mut full_command = args.command.clone();
-        for arg in &args.args {
-            full_command.push(' ');
-            full_command.push_str(arg);
-        }
-        let mut cmd = tokio::process::Command::new("bash");
-        cmd.args(["-c", &full_command]);
+        let mut cmd = tokio::process::Command::new(&args.command);
+        cmd.args(&args.args);
 
         if let Some(cwd) = &args.cwd {
             cmd.current_dir(cwd);
@@ -339,22 +334,43 @@ impl acp::Client for Client {
         Ok(acp::WaitForTerminalExitResponse::new(exit_status))
     }
 
-    #[allow(clippy::await_holding_refcell_ref)]
     async fn kill_terminal(
         &self,
         args: acp::KillTerminalRequest,
     ) -> acp::Result<acp::KillTerminalResponse> {
         let tid = args.terminal_id.to_string();
-        let mut terminals = self.terminals.borrow_mut();
-        let state = terminals.get_mut(&tid).ok_or_else(|| {
-            acp::Error::into_internal_error(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "terminal not found",
-            ))
-        })?;
+        let child = {
+            let mut terminals = self.terminals.borrow_mut();
+            let state = terminals.get_mut(&tid).ok_or_else(|| {
+                acp::Error::into_internal_error(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "terminal not found",
+                ))
+            })?;
+            if let TerminalState::Running { child, .. } = state {
+                Some(child.id())
+            } else {
+                None
+            }
+        };
 
-        if let TerminalState::Running { child, .. } = state {
-            let _ = child.kill().await;
+        // Kill outside the borrow by taking the running child.
+        if child.is_some() {
+            if let Some((mut child, output_limit)) =
+                take_running_child(&self.terminals, &tid)
+            {
+                let _ = child.kill().await;
+                let (output, truncated, exit_status) =
+                    collect_output(child, output_limit).await;
+                self.terminals.borrow_mut().insert(
+                    tid,
+                    TerminalState::Done {
+                        output,
+                        truncated,
+                        exit_status,
+                    },
+                );
+            }
         }
 
         Ok(acp::KillTerminalResponse::default())
