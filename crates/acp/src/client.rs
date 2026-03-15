@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use agent_client_protocol as acp;
@@ -27,6 +27,10 @@ pub struct Client {
     terminals: Rc<RefCell<HashMap<String, TerminalState>>>,
     next_terminal_id: Rc<std::cell::Cell<u64>>,
     extra_env: Rc<HashMap<String, String>>,
+    /// When set, only tools whose title matches one of these names are allowed.
+    allowed_tools: Option<Rc<HashSet<String>>>,
+    /// Names of MCP servers for this session — tools from these are always allowed.
+    mcp_server_names: HashSet<String>,
 }
 
 impl Client {
@@ -34,6 +38,8 @@ impl Client {
         update_callback: Rc<RefCell<Option<UpdateCallback>>>,
         auto_approve: bool,
         extra_env: Rc<HashMap<String, String>>,
+        allowed_tools: Option<Rc<HashSet<String>>>,
+        mcp_server_names: HashSet<String>,
     ) -> Self {
         Self {
             update_callback,
@@ -41,7 +47,44 @@ impl Client {
             terminals: Rc::new(RefCell::new(HashMap::new())),
             next_terminal_id: Rc::new(std::cell::Cell::new(1)),
             extra_env,
+            allowed_tools,
+            mcp_server_names,
         }
+    }
+
+    /// Check whether a tool call is allowed by the filter.
+    /// Returns `Ok(())` if allowed, or an ACP error if blocked.
+    fn check_tool_allowed(&self, title: &str) -> acp::Result<()> {
+        let Some(ref allowed) = self.allowed_tools else {
+            return Ok(());
+        };
+
+        // Exact match on title.
+        if allowed.contains(title) {
+            return Ok(());
+        }
+
+        // Prefix match: title may be "Read /path/to/file" while allowed has "Read".
+        let first_word = title.split_whitespace().next().unwrap_or(title);
+        if allowed.contains(first_word) {
+            return Ok(());
+        }
+
+        // MCP tools are always allowed. Claude Code names them as
+        // "mcp__<server>__<tool>"; check if the title references a known
+        // MCP server name.
+        for server_name in &self.mcp_server_names {
+            if title.contains(server_name.as_str()) {
+                return Ok(());
+            }
+        }
+
+        Err(acp::Error::into_internal_error(std::io::Error::other(
+            format!(
+                "Tool '{}' is not available in this session. Use the document MCP tools instead.",
+                first_word
+            ),
+        )))
     }
 }
 
@@ -118,6 +161,9 @@ impl acp::Client for Client {
             .title
             .as_deref()
             .unwrap_or("unknown");
+
+        // Check the tool filter before proceeding.
+        self.check_tool_allowed(tool_title)?;
 
         if self.auto_approve {
             tracing::debug!(tool = tool_title, "auto-approving permission");
@@ -426,5 +472,69 @@ impl Client {
                 exit_status,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_client(
+        allowed: Option<Vec<&str>>,
+        mcp_names: Vec<&str>,
+    ) -> Client {
+        Client::new(
+            Rc::new(RefCell::new(None)),
+            true,
+            Rc::new(HashMap::new()),
+            allowed.map(|v| Rc::new(v.into_iter().map(String::from).collect())),
+            mcp_names.into_iter().map(String::from).collect(),
+        )
+    }
+
+    #[test]
+    fn no_filter_allows_everything() {
+        let client = make_client(None, vec![]);
+        assert!(client.check_tool_allowed("Read").is_ok());
+        assert!(client.check_tool_allowed("Write").is_ok());
+        assert!(client.check_tool_allowed("Bash").is_ok());
+    }
+
+    #[test]
+    fn filter_allows_listed_tools() {
+        let client = make_client(Some(vec!["Read", "WebSearch"]), vec![]);
+        assert!(client.check_tool_allowed("Read").is_ok());
+        assert!(client.check_tool_allowed("WebSearch").is_ok());
+    }
+
+    #[test]
+    fn filter_blocks_unlisted_tools() {
+        let client = make_client(Some(vec!["Read", "WebSearch"]), vec![]);
+        let err = client.check_tool_allowed("Write").unwrap_err();
+        assert!(err.to_string().contains("not available"));
+
+        let err = client.check_tool_allowed("Bash").unwrap_err();
+        assert!(err.to_string().contains("not available"));
+
+        let err = client.check_tool_allowed("Edit").unwrap_err();
+        assert!(err.to_string().contains("not available"));
+    }
+
+    #[test]
+    fn filter_matches_title_prefix() {
+        let client = make_client(Some(vec!["Read"]), vec![]);
+        // Title like "Read /path/to/file.txt" should match "Read"
+        assert!(client.check_tool_allowed("Read /path/to/file.txt").is_ok());
+        // But "ReadFile" should NOT match
+        assert!(client.check_tool_allowed("ReadFile").is_err());
+    }
+
+    #[test]
+    fn mcp_tools_bypass_filter() {
+        let client = make_client(Some(vec!["Read"]), vec!["enki"]);
+        // MCP tool referencing a known server name should be allowed
+        assert!(client.check_tool_allowed("mcp__enki__enki_edit_file").is_ok());
+        // Built-in tool not in the list should still be blocked
+        assert!(client.check_tool_allowed("Write").is_err());
     }
 }

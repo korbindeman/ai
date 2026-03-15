@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -37,6 +37,9 @@ pub struct AgentManager {
     client_info: Rc<ClientInfo>,
     /// Optional directory for per-session JSON-RPC logs.
     log_dir: Option<PathBuf>,
+    /// When set, only tool calls whose title matches one of these names are
+    /// allowed. MCP-provided tools are always allowed regardless of this filter.
+    allowed_tools: Option<Rc<HashSet<String>>>,
 }
 
 impl AgentManager {
@@ -48,6 +51,7 @@ impl AgentManager {
             extra_env: Rc::new(HashMap::new()),
             client_info: Rc::new(client_info),
             log_dir: None,
+            allowed_tools: None,
         }
     }
 
@@ -66,6 +70,15 @@ impl AgentManager {
     /// Each session writes to `<log_dir>/<label>.log`.
     pub fn set_log_dir(&mut self, dir: PathBuf) {
         self.log_dir = Some(dir);
+    }
+
+    /// Set the list of tool names the agent is allowed to use.
+    /// Any tool call not in this list will be automatically rejected
+    /// with an error message telling the agent the tool is not available.
+    /// MCP tools (from MCP servers) are always allowed.
+    /// If not set, all tools are allowed (default behavior).
+    pub fn set_allowed_tools(&mut self, tools: Vec<String>) {
+        self.allowed_tools = Some(Rc::new(tools.into_iter().collect()));
     }
 
     /// Set a callback to receive session updates from all agents.
@@ -155,11 +168,24 @@ impl AgentManager {
             });
         }
 
+        // Collect MCP server names so the tool filter can bypass them.
+        let mcp_server_names: HashSet<String> = mcp_servers
+            .iter()
+            .filter_map(|s| match s {
+                acp::McpServer::Http(h) => Some(h.name.clone()),
+                acp::McpServer::Sse(s) => Some(s.name.clone()),
+                acp::McpServer::Stdio(s) => Some(s.name.clone()),
+                _ => None,
+            })
+            .collect();
+
         // Create ACP client
         let client = Client::new(
             self.update_callback.clone(),
             self.auto_approve_permissions,
             self.extra_env.clone(),
+            self.allowed_tools.clone(),
+            mcp_server_names,
         );
 
         let (conn, handle_io) =
