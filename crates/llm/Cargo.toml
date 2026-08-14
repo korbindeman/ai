@@ -1,0 +1,50 @@
+[package]
+name = "llm"
+version.workspace = true
+edition.workspace = true
+description = "One model interface for hosted APIs, local servers, and consumer-defined backends"
+license = "MIT OR Apache-2.0"
+readme = false
+
+[features]
+default = []
+http = ["dep:reqwest", "dep:eventsource-stream", "dep:secrecy"]
+anthropic = ["http"]
+openai-compatible = ["http"]
+openrouter = ["openai-compatible"]
+ollama = ["http"]
+chatgpt-subscription = ["http"]
+
+[dependencies]
+async-trait = "0.1"
+futures = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "time", "macros"] }
+tokio-util = { version = "0.7", default-features = false }
+tracing = { workspace = true }
+uuid = { version = "1", features = ["v7", "serde"] }
+
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "stream", "rustls-tls"] }
+eventsource-stream = { version = "0.2", optional = true }
+secrecy = { version = "0.10", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
+wiremock = "0.6"
+serde_json = { workspace = true }
+futures = "0.3"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[[test]]
+name = "adapter_http"
+required-features = [
+    "anthropic",
+    "openai-compatible",
+    "openrouter",
+    "ollama",
+    "chatgpt-subscription",
+]
