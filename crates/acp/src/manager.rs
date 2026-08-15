@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use agent_client_protocol as acp;
 use acp::{StreamMessageContent, StreamMessageDirection};
+use agent_client_protocol as acp;
 use tokio::process::Command;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -188,10 +188,9 @@ impl AgentManager {
             mcp_server_names,
         );
 
-        let (conn, handle_io) =
-            acp::ClientSideConnection::new(client, stdin, stdout, |fut| {
-                tokio::task::spawn_local(fut);
-            });
+        let (conn, handle_io) = acp::ClientSideConnection::new(client, stdin, stdout, |fut| {
+            tokio::task::spawn_local(fut);
+        });
         let conn = Rc::new(conn);
 
         // Drive the I/O loop in background
@@ -271,11 +270,9 @@ impl AgentManager {
             acp::InitializeRequest::new(acp::ProtocolVersion::V1)
                 .client_capabilities(
                     acp::ClientCapabilities::new()
-                        .fs(
-                            acp::FileSystemCapabilities::new()
-                                .read_text_file(true)
-                                .write_text_file(true),
-                        )
+                        .fs(acp::FileSystemCapabilities::new()
+                            .read_text_file(true)
+                            .write_text_file(true))
                         .terminal(true),
                 )
                 .client_info(impl_info),
@@ -312,7 +309,11 @@ impl AgentManager {
         session_id: &str,
         content: Vec<acp::ContentBlock>,
     ) -> Result<String> {
-        tracing::debug!(session_id, blocks = content.len(), "sending prompt to agent");
+        tracing::debug!(
+            session_id,
+            blocks = content.len(),
+            "sending prompt to agent"
+        );
         let conn = {
             let sessions = self.sessions.borrow();
             let entry = sessions
@@ -323,10 +324,7 @@ impl AgentManager {
 
         let resp = acp::Agent::prompt(
             conn.as_ref(),
-            acp::PromptRequest::new(
-                acp::SessionId::from(session_id.to_string()),
-                content,
-            ),
+            acp::PromptRequest::new(acp::SessionId::from(session_id.to_string()), content),
         )
         .await?;
 
@@ -349,9 +347,7 @@ impl AgentManager {
 
         acp::Agent::cancel(
             conn.as_ref(),
-            acp::CancelNotification::new(acp::SessionId::from(
-                session_id.to_string(),
-            )),
+            acp::CancelNotification::new(acp::SessionId::from(session_id.to_string())),
         )
         .await?;
 

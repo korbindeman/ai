@@ -107,13 +107,12 @@ async fn collect_output(
                 combined = combined[start..].to_string();
             }
 
-            let exit_status = acp::TerminalExitStatus::new()
-                .exit_code(output.status.code().map(|c| c as u32));
+            let exit_status =
+                acp::TerminalExitStatus::new().exit_code(output.status.code().map(|c| c as u32));
             (combined, truncated, exit_status)
         }
         Err(e) => {
-            let exit_status =
-                acp::TerminalExitStatus::new().signal(format!("io_error: {e}"));
+            let exit_status = acp::TerminalExitStatus::new().signal(format!("io_error: {e}"));
             (String::new(), false, exit_status)
         }
     }
@@ -155,12 +154,7 @@ impl acp::Client for Client {
         &self,
         args: acp::RequestPermissionRequest,
     ) -> acp::Result<acp::RequestPermissionResponse> {
-        let tool_title = args
-            .tool_call
-            .fields
-            .title
-            .as_deref()
-            .unwrap_or("unknown");
+        let tool_title = args.tool_call.fields.title.as_deref().unwrap_or("unknown");
 
         // Check the tool filter before proceeding.
         self.check_tool_allowed(tool_title)?;
@@ -180,22 +174,22 @@ impl acp::Client for Client {
                 .unwrap_or_else(|| args.options[0].option_id.clone());
 
             Ok(acp::RequestPermissionResponse::new(
-                acp::RequestPermissionOutcome::Selected(
-                    acp::SelectedPermissionOutcome::new(option_id),
-                ),
+                acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
+                    option_id,
+                )),
             ))
         } else {
-            tracing::warn!(tool = tool_title, "permission denied (non-interactive mode)");
+            tracing::warn!(
+                tool = tool_title,
+                "permission denied (non-interactive mode)"
+            );
             Ok(acp::RequestPermissionResponse::new(
                 acp::RequestPermissionOutcome::Cancelled,
             ))
         }
     }
 
-    async fn session_notification(
-        &self,
-        args: acp::SessionNotification,
-    ) -> acp::Result<()> {
+    async fn session_notification(&self, args: acp::SessionNotification) -> acp::Result<()> {
         let cb = self.update_callback.borrow();
         let Some(callback) = cb.as_ref() else {
             return Ok(());
@@ -337,8 +331,7 @@ impl acp::Client for Client {
                 exit_status,
                 ..
             } => {
-                let mut resp =
-                    acp::TerminalOutputResponse::new(output.clone(), *truncated);
+                let mut resp = acp::TerminalOutputResponse::new(output.clone(), *truncated);
                 resp.exit_status = Some(exit_status.clone());
                 Ok(resp)
             }
@@ -358,8 +351,7 @@ impl acp::Client for Client {
             }
         }
 
-        let Some((child, output_limit)) = take_running_child(&self.terminals, &tid)
-        else {
+        let Some((child, output_limit)) = take_running_child(&self.terminals, &tid) else {
             return Err(acp::Error::into_internal_error(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "terminal not found",
@@ -402,12 +394,9 @@ impl acp::Client for Client {
 
         // Kill outside the borrow by taking the running child.
         if child.is_some() {
-            if let Some((mut child, output_limit)) =
-                take_running_child(&self.terminals, &tid)
-            {
+            if let Some((mut child, output_limit)) = take_running_child(&self.terminals, &tid) {
                 let _ = child.kill().await;
-                let (output, truncated, exit_status) =
-                    collect_output(child, output_limit).await;
+                let (output, truncated, exit_status) = collect_output(child, output_limit).await;
                 self.terminals.borrow_mut().insert(
                     tid,
                     TerminalState::Done {
@@ -443,9 +432,7 @@ impl Client {
     async fn finish_if_exited(&self, terminal_id: &str) {
         let exited = {
             let mut terminals = self.terminals.borrow_mut();
-            if let Some(TerminalState::Running { child, .. }) =
-                terminals.get_mut(terminal_id)
-            {
+            if let Some(TerminalState::Running { child, .. }) = terminals.get_mut(terminal_id) {
                 matches!(child.try_wait(), Ok(Some(_)))
             } else {
                 false
@@ -456,9 +443,7 @@ impl Client {
             return;
         }
 
-        let Some((child, output_limit)) =
-            take_running_child(&self.terminals, terminal_id)
-        else {
+        let Some((child, output_limit)) = take_running_child(&self.terminals, terminal_id) else {
             return;
         };
 
@@ -479,10 +464,7 @@ impl Client {
 mod tests {
     use super::*;
 
-    fn make_client(
-        allowed: Option<Vec<&str>>,
-        mcp_names: Vec<&str>,
-    ) -> Client {
+    fn make_client(allowed: Option<Vec<&str>>, mcp_names: Vec<&str>) -> Client {
         Client::new(
             Rc::new(RefCell::new(None)),
             true,
@@ -533,7 +515,11 @@ mod tests {
     fn mcp_tools_bypass_filter() {
         let client = make_client(Some(vec!["Read"]), vec!["enki"]);
         // MCP tool referencing a known server name should be allowed
-        assert!(client.check_tool_allowed("mcp__enki__enki_edit_file").is_ok());
+        assert!(
+            client
+                .check_tool_allowed("mcp__enki__enki_edit_file")
+                .is_ok()
+        );
         // Built-in tool not in the list should still be blocked
         assert!(client.check_tool_allowed("Write").is_err());
     }

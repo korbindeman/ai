@@ -160,8 +160,7 @@ fn resolve_builtin(
             let program = which::which(binary)
                 .map_err(|_| ResolveError::AgentNotFound(binary.to_string()))?;
 
-            let mut args: Vec<String> =
-                default_args.iter().map(|s| s.to_string()).collect();
+            let mut args: Vec<String> = default_args.iter().map(|s| s.to_string()).collect();
             args.extend_from_slice(extra_args);
 
             Ok(AgentCommand {
